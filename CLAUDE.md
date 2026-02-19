@@ -88,6 +88,30 @@ Avoid:
 4. Add checkpointing for long runs
 5. Build diversity metrics to ensure coverage
 
+## Current State
+
+### Implemented
+- **Project scaffold**: Full directory structure per pipeline architecture spec
+- **`src/utils/llm.py`**: Ollama API abstraction (`LLMClient`, `LLMConfig`, `load_llm_from_config`) with deterministic defaults (temperature=0, fixed seed), JSON generation support, and error handling
+- **`src/generators/base.py`**: Abstract `BaseGenerator` class defining the generator interface (`generate_batch`, `validate_item`, `generate`)
+- **`src/pipeline/checkpoint.py`**: `CheckpointManager` for saving/loading intermediate pipeline state as JSON, with run ID tracking and resume support
+- **`src/config/defaults.yaml`**: Default configuration for LLM, generation, validation, checkpoint, and dataset settings
+- **`scripts/generate.py`**: CLI entrypoint with `--config`, `--resume`, `--count`, and `--dry-run` flags; loads config, initializes LLM client and checkpoint manager
+- **`pyproject.toml`**: Project metadata and dependencies (requests, pandas, pyyaml)
+- **`.gitignore`**: Ignores generated data files, checkpoints, Python artifacts, IDE files
+
+### Not Yet Implemented
+- **`src/generators/proposition.py`**: Factual proposition generation
+- **`src/generators/scenario.py`**: Pressure scenario generation
+- **`src/generators/frames.py`**: Threat/reward frame generation
+- **`src/validators/factual.py`**: Factual grounding verification
+- **`src/validators/quality.py`**: LLM-based quality judging
+- **`src/validators/diversity.py`**: Coverage/diversity metrics
+- **`src/pipeline/orchestrator.py`**: Pipeline coordination (generation → validation → filtering)
+- **`src/utils/dedup.py`**: Semantic deduplication
+- Wiring generators into CLI entrypoint
+- End-to-end pipeline execution
+
 ## References
 
 - Perez et al. (2022) — "Discovering Language Model Behaviors with Model-Written Evaluations"

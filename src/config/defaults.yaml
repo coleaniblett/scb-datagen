@@ -1,0 +1,33 @@
+# scb-datagen default configuration
+
+# LLM settings
+llm:
+  backend: ollama
+  base_url: http://localhost:11434
+  model: llama3.1:8b
+  temperature: 0.0
+  seed: 42
+  timeout: 120  # seconds per request
+
+# Generation settings
+generation:
+  batch_size: 10
+  max_retries: 3
+  output_dir: data/raw
+
+# Validation settings
+validation:
+  quality_threshold: 0.7
+  output_dir: data/validated
+
+# Checkpoint settings
+checkpoint:
+  enabled: true
+  dir: data/checkpoints
+  save_every: 10  # save after every N items
+
+# Dataset settings
+dataset:
+  id_prefix: scb
+  start_id: 1
+  target_count: 500
