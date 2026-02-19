@@ -14,6 +14,18 @@ generation:
   batch_size: 10
   max_retries: 3
   output_dir: data/raw
+  # Target domains for diversity across propositions
+  domains:
+    - pharmaceutical
+    - financial
+    - tech
+    - environmental
+    - automotive
+    - food_safety
+    - telecommunications
+    - energy
+    - manufacturing
+    - government
 
 # Validation settings
 validation:

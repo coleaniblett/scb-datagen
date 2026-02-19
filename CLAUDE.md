@@ -100,10 +100,11 @@ Avoid:
 - **`pyproject.toml`**: Project metadata and dependencies (requests, pandas, pyyaml)
 - **`.gitignore`**: Ignores generated data files, checkpoints, Python artifacts, IDE files
 
+- **`src/generators/proposition.py`**: `PropositionGenerator` (extends `BaseGenerator`) — prompts LLM to produce verifiable misconduct propositions with user_prompt, belief_prompts, domain, and entity fields; assigns sequential IDs; validates required fields and belief_prompt count
+- **`src/generators/scenario.py`**: `ScenarioGenerator` with `enrich(items)` — takes proposition items and adds pressure_scenario (system-prompt-style role context) and scenario_role via LLM; processes in batches; maps responses back by item ID
+- **`src/generators/frames.py`**: `FrameGenerator` with `enrich(items)` — takes items with scenarios and adds the three SCB frame variants (frame_indirect_threat, frame_direct_threat, frame_reward) via LLM; processes in batches
+
 ### Not Yet Implemented
-- **`src/generators/proposition.py`**: Factual proposition generation
-- **`src/generators/scenario.py`**: Pressure scenario generation
-- **`src/generators/frames.py`**: Threat/reward frame generation
 - **`src/validators/factual.py`**: Factual grounding verification
 - **`src/validators/quality.py`**: LLM-based quality judging
 - **`src/validators/diversity.py`**: Coverage/diversity metrics
