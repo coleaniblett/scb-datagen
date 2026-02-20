@@ -3,6 +3,8 @@
 
 Usage:
     python scripts/generate.py [--config CONFIG] [--resume RUN_ID] [--count N]
+    python scripts/generate.py --backend openai --model gpt-4o-mini --count 10
+    python scripts/generate.py --backend anthropic --count 20
 """
 
 from __future__ import annotations
@@ -57,6 +59,19 @@ def parse_args() -> argparse.Namespace:
         help="Number of items to generate (overrides config)",
     )
     parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        choices=["ollama", "openai", "anthropic", "gemini"],
+        help="LLM backend (overrides config)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name (overrides config)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate config and exit without generating",
@@ -71,8 +86,20 @@ def main() -> None:
     config = load_config(args.config)
     logger.info("Loaded config from %s", args.config)
 
+    # CLI overrides for LLM settings
+    llm_config = config.get("llm", {})
+    if args.backend:
+        llm_config["backend"] = args.backend
+        # When switching backends via CLI, use that backend's default model
+        # unless --model is also specified
+        if not args.model:
+            llm_config.pop("model", None)
+            llm_config.pop("base_url", None)
+    if args.model:
+        llm_config["model"] = args.model
+
     # Initialize LLM client
-    llm = load_llm_from_config(config.get("llm", {}))
+    llm = load_llm_from_config(llm_config)
     logger.info("LLM backend: %s, model: %s", llm.config.backend, llm.config.model)
 
     # Initialize checkpoint manager

@@ -1,19 +1,45 @@
-"""Abstraction over LLM API calls (Ollama by default).
+"""Abstraction over LLM API calls (Ollama, OpenAI, Anthropic, Gemini).
 
 Provides a unified interface for making LLM calls with deterministic
-settings. Designed to allow swapping backends without changing caller code.
+settings. All backends use raw HTTP via `requests` — no SDK dependencies.
+API keys are read from config with environment-variable fallback.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+import os
+import re
+from dataclasses import dataclass
 from typing import Any
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Default base URLs per backend
+DEFAULT_BASE_URLS: dict[str, str] = {
+    "ollama": "http://localhost:11434",
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com",
+    "gemini": "https://generativelanguage.googleapis.com",
+}
+
+# Default model names per backend
+DEFAULT_MODELS: dict[str, str] = {
+    "ollama": "llama3.1:8b",
+    "openai": "gpt-4o",
+    "anthropic": "claude-sonnet-4-5-20250929",
+    "gemini": "gemini-2.0-flash",
+}
+
+# Environment variable names for API keys
+API_KEY_ENV_VARS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
 
 
 @dataclass
@@ -21,22 +47,41 @@ class LLMConfig:
     """Configuration for LLM API calls."""
 
     backend: str = "ollama"
-    base_url: str = "http://localhost:11434"
-    model: str = "llama3.1:8b"
+    base_url: str = ""
+    model: str = ""
     temperature: float = 0.0
     seed: int = 42
     timeout: int = 120
+    api_key: str = ""
+    max_tokens: int = 4096
+
+    def __post_init__(self) -> None:
+        # Apply backend-specific defaults if not explicitly set
+        if not self.base_url:
+            self.base_url = DEFAULT_BASE_URLS.get(self.backend, "")
+        if not self.model:
+            self.model = DEFAULT_MODELS.get(self.backend, "")
+        # Resolve API key from env var if not in config
+        if not self.api_key and self.backend in API_KEY_ENV_VARS:
+            self.api_key = os.environ.get(API_KEY_ENV_VARS[self.backend], "")
 
 
 class LLMClient:
     """Client for making LLM API calls.
 
-    Wraps Ollama's HTTP API with deterministic defaults.
-    Backend-agnostic interface so callers don't depend on Ollama specifics.
+    Supports multiple backends (Ollama, OpenAI, Anthropic, Gemini) through
+    a unified interface. All backends use raw HTTP via requests.
     """
+
+    BACKENDS = ("ollama", "openai", "anthropic", "gemini")
 
     def __init__(self, config: LLMConfig | None = None) -> None:
         self.config = config or LLMConfig()
+        if self.config.backend not in self.BACKENDS:
+            raise LLMError(
+                f"Unknown backend: {self.config.backend!r}. "
+                f"Supported: {', '.join(self.BACKENDS)}"
+            )
 
     def generate(self, prompt: str, system: str = "", **kwargs: Any) -> str:
         """Generate a completion from the LLM.
@@ -52,12 +97,19 @@ class LLMClient:
         Raises:
             LLMError: If the API call fails.
         """
-        if self.config.backend == "ollama":
-            return self._generate_ollama(prompt, system, **kwargs)
-        raise LLMError(f"Unknown backend: {self.config.backend}")
+        dispatch = {
+            "ollama": self._generate_ollama,
+            "openai": self._generate_openai,
+            "anthropic": self._generate_anthropic,
+            "gemini": self._generate_gemini,
+        }
+        return dispatch[self.config.backend](prompt, system, **kwargs)
 
     def generate_json(self, prompt: str, system: str = "", **kwargs: Any) -> dict:
         """Generate a completion and parse it as JSON.
+
+        Requests JSON format from backends that support it natively.
+        Falls back to extracting JSON from freeform text for others.
 
         Args:
             prompt: The user/input prompt.
@@ -71,10 +123,11 @@ class LLMClient:
             LLMError: If the API call or JSON parsing fails.
         """
         raw = self.generate(prompt, system, format="json", **kwargs)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
-            raise LLMError(f"Failed to parse LLM response as JSON: {e}") from e
+        return _extract_json(raw)
+
+    # ------------------------------------------------------------------
+    # Backend implementations
+    # ------------------------------------------------------------------
 
     def _generate_ollama(self, prompt: str, system: str, **kwargs: Any) -> str:
         """Call the Ollama /api/generate endpoint."""
@@ -90,23 +143,175 @@ class LLMClient:
         }
         if system:
             payload["system"] = system
-        if "format" in kwargs:
-            payload["format"] = kwargs["format"]
+        if kwargs.get("format") == "json":
+            payload["format"] = "json"
 
-        logger.debug("Ollama request to %s model=%s", url, self.config.model)
+        logger.debug("Ollama request model=%s", self.config.model)
+        data = self._post(url, payload)
+        return data.get("response", "")
 
+    def _generate_openai(self, prompt: str, system: str, **kwargs: Any) -> str:
+        """Call the OpenAI chat completions endpoint.
+
+        Also works with any OpenAI-compatible API (Together, Groq, etc.)
+        by changing base_url in config.
+        """
+        url = f"{self.config.base_url}/chat/completions"
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", self.config.temperature),
+            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+            "seed": kwargs.get("seed", self.config.seed),
+        }
+        if kwargs.get("format") == "json":
+            payload["response_format"] = {"type": "json_object"}
+
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        logger.debug("OpenAI request model=%s", self.config.model)
+        data = self._post(url, payload, headers=headers)
         try:
-            resp = requests.post(url, json=payload, timeout=self.config.timeout)
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError) as e:
+            raise LLMError(f"Unexpected OpenAI response structure: {e}") from e
+
+    def _generate_anthropic(self, prompt: str, system: str, **kwargs: Any) -> str:
+        """Call the Anthropic messages endpoint."""
+        url = f"{self.config.base_url}/v1/messages"
+        messages = [{"role": "user", "content": prompt}]
+
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+            "temperature": kwargs.get("temperature", self.config.temperature),
+        }
+        if system:
+            payload["system"] = system
+
+        headers = {
+            "x-api-key": self.config.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+        logger.debug("Anthropic request model=%s", self.config.model)
+        data = self._post(url, payload, headers=headers)
+        try:
+            content_blocks = data["content"]
+            return "".join(block["text"] for block in content_blocks if block["type"] == "text")
+        except (KeyError, IndexError, TypeError) as e:
+            raise LLMError(f"Unexpected Anthropic response structure: {e}") from e
+
+    def _generate_gemini(self, prompt: str, system: str, **kwargs: Any) -> str:
+        """Call the Gemini generateContent endpoint."""
+        model = self.config.model
+        url = f"{self.config.base_url}/v1beta/models/{model}:generateContent"
+
+        contents: list[dict[str, Any]] = []
+        if system:
+            contents.append({"role": "user", "parts": [{"text": system}]})
+            contents.append({"role": "model", "parts": [{"text": "Understood. I will follow these instructions."}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+        generation_config: dict[str, Any] = {
+            "temperature": kwargs.get("temperature", self.config.temperature),
+            "maxOutputTokens": kwargs.get("max_tokens", self.config.max_tokens),
+        }
+        if kwargs.get("format") == "json":
+            generation_config["responseMimeType"] = "application/json"
+
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": generation_config,
+        }
+
+        headers = {"Content-Type": "application/json"}
+        params = {"key": self.config.api_key}
+
+        logger.debug("Gemini request model=%s", model)
+        data = self._post(url, payload, headers=headers, params=params)
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as e:
+            raise LLMError(f"Unexpected Gemini response structure: {e}") from e
+
+    # ------------------------------------------------------------------
+    # HTTP helper
+    # ------------------------------------------------------------------
+
+    def _post(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Make an HTTP POST request and return parsed JSON."""
+        try:
+            resp = requests.post(
+                url, json=payload, headers=headers, params=params,
+                timeout=self.config.timeout,
+            )
             resp.raise_for_status()
         except requests.RequestException as e:
-            raise LLMError(f"Ollama API call failed: {e}") from e
-
-        data = resp.json()
-        return data.get("response", "")
+            raise LLMError(f"{self.config.backend} API call failed: {e}") from e
+        return resp.json()
 
 
 class LLMError(Exception):
     """Raised when an LLM API call fails."""
+
+
+def _extract_json(text: str) -> dict:
+    """Extract and parse JSON from an LLM response.
+
+    Handles cases where the model wraps JSON in markdown fences
+    or adds surrounding commentary.
+
+    Args:
+        text: Raw LLM response text.
+
+    Returns:
+        Parsed JSON dict.
+
+    Raises:
+        LLMError: If no valid JSON can be extracted.
+    """
+    text = text.strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from markdown code fences
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if fence_match:
+        try:
+            return json.loads(fence_match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Try finding the first { ... } block
+    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    raise LLMError(f"Failed to extract JSON from LLM response: {text[:200]}...")
 
 
 def load_llm_from_config(config: dict[str, Any]) -> LLMClient:

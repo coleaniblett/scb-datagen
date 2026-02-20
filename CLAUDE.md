@@ -75,10 +75,13 @@ Avoid:
 
 ## LLM Usage
 
-- Primary generation/validation via Ollama (local models)
-- Abstract LLM calls behind `utils/llm.py` to allow swapping backends
-- Default models: configurable, but tested with Llama 3.1, Qwen 2.5, Mistral
+- **Supported backends**: Ollama (local), OpenAI, Anthropic (Claude), Google Gemini
+- All backends use raw HTTP via `requests` — no SDK dependencies
+- Abstract LLM calls behind `utils/llm.py`; switch backends via config or `--backend` CLI flag
+- API keys: set in config YAML or via environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`)
+- Smart defaults per backend (model, base_url); override with `--model` CLI flag or config
 - Use deterministic settings where possible (temperature=0, seed fixed)
+- JSON extraction handles raw JSON, markdown fences, and embedded JSON in freeform text
 
 ## Current Priorities
 
@@ -92,7 +95,7 @@ Avoid:
 
 ### Implemented
 - **Project scaffold**: Full directory structure per pipeline architecture spec
-- **`src/utils/llm.py`**: Ollama API abstraction (`LLMClient`, `LLMConfig`, `load_llm_from_config`) with deterministic defaults (temperature=0, fixed seed), JSON generation support, and error handling
+- **`src/utils/llm.py`**: Multi-backend LLM client (`LLMClient`, `LLMConfig`, `load_llm_from_config`) supporting Ollama, OpenAI, Anthropic, and Gemini via raw HTTP; deterministic defaults per backend; robust JSON extraction (`_extract_json`) handles fences and embedded JSON; API keys from config or env vars
 - **`src/generators/base.py`**: Abstract `BaseGenerator` class defining the generator interface (`generate_batch`, `validate_item`, `generate`)
 - **`src/pipeline/checkpoint.py`**: `CheckpointManager` for saving/loading intermediate pipeline state as JSON, with run ID tracking and resume support
 - **`src/config/defaults.yaml`**: Default configuration for LLM, generation, validation, checkpoint, and dataset settings
@@ -109,7 +112,7 @@ Avoid:
 - **`src/validators/diversity.py`**: `DiversityAnalyzer` — computes domain/entity/role distributions, identifies missing target domains, measures entity concentration, and suggests generation counts to improve coverage
 - **`src/utils/dedup.py`**: `deduplicate()` and `find_duplicates()` — SequenceMatcher-based text similarity dedup with configurable threshold (default 0.80); O(n²) pairwise but fine for dataset scale
 - **`src/pipeline/orchestrator.py`**: `PipelineOrchestrator` — chains all 8 stages (generate → factual validate → scenario enrich → frame enrich → quality validate → dedup → diversity → save); checkpoint after each stage; strips internal metadata from final output
-- **`scripts/generate.py`**: CLI now wired to orchestrator; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
+- **`scripts/generate.py`**: CLI now wired to orchestrator; `--backend` and `--model` flags for quick backend switching; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
 
 ### Not Yet Implemented
 - End-to-end testing with a live Ollama instance
