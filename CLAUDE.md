@@ -104,14 +104,18 @@ Avoid:
 - **`src/generators/scenario.py`**: `ScenarioGenerator` with `enrich(items)` — takes proposition items and adds pressure_scenario (system-prompt-style role context) and scenario_role via LLM; processes in batches; maps responses back by item ID
 - **`src/generators/frames.py`**: `FrameGenerator` with `enrich(items)` — takes items with scenarios and adds the three SCB frame variants (frame_indirect_threat, frame_direct_threat, frame_reward) via LLM; processes in batches
 
+- **`src/validators/factual.py`**: `FactualValidator` — LLM-based verification that propositions describe real, documented events; scores grounded/confidence/reasoning; batch validation and filtering by confidence threshold
+- **`src/validators/quality.py`**: `QualityValidator` — LLM judge scoring complete items on clarity, plausibility, relevance, frame_quality, artificiality, and overall; batch evaluation and filtering by quality threshold
+- **`src/validators/diversity.py`**: `DiversityAnalyzer` — computes domain/entity/role distributions, identifies missing target domains, measures entity concentration, and suggests generation counts to improve coverage
+- **`src/utils/dedup.py`**: `deduplicate()` and `find_duplicates()` — SequenceMatcher-based text similarity dedup with configurable threshold (default 0.80); O(n²) pairwise but fine for dataset scale
+- **`src/pipeline/orchestrator.py`**: `PipelineOrchestrator` — chains all 8 stages (generate → factual validate → scenario enrich → frame enrich → quality validate → dedup → diversity → save); checkpoint after each stage; strips internal metadata from final output
+- **`scripts/generate.py`**: CLI now wired to orchestrator; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
+
 ### Not Yet Implemented
-- **`src/validators/factual.py`**: Factual grounding verification
-- **`src/validators/quality.py`**: LLM-based quality judging
-- **`src/validators/diversity.py`**: Coverage/diversity metrics
-- **`src/pipeline/orchestrator.py`**: Pipeline coordination (generation → validation → filtering)
-- **`src/utils/dedup.py`**: Semantic deduplication
-- Wiring generators into CLI entrypoint
-- End-to-end pipeline execution
+- End-to-end testing with a live Ollama instance
+- Targeted re-generation for under-represented domains (diversity suggestions exist but aren't acted on automatically)
+- Configurable over-generation ratio (currently hardcoded at 1.5×)
+- Export to CSV/pandas format (currently JSON only)
 
 ## References
 

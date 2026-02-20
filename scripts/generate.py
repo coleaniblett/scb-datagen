@@ -18,7 +18,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.pipeline.checkpoint import CheckpointManager
-from src.utils.llm import LLMClient, LLMConfig, load_llm_from_config
+from src.pipeline.orchestrator import PipelineOrchestrator
+from src.utils.llm import load_llm_from_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,10 +82,11 @@ def main() -> None:
     )
 
     # Resume from checkpoint if requested
+    resume_state = None
     if args.resume:
-        state = checkpoint_mgr.load()
-        if state:
-            logger.info("Resumed run %s with %d items", args.resume, len(state.get("items", [])))
+        resume_state = checkpoint_mgr.load()
+        if resume_state:
+            logger.info("Resumed run %s with %d items", args.resume, len(resume_state.get("items", [])))
         else:
             logger.warning("No checkpoint found for run %s, starting fresh", args.resume)
 
@@ -95,8 +97,10 @@ def main() -> None:
         logger.info("Dry run complete — config is valid.")
         return
 
-    # TODO: Wire up generators and orchestrator here
-    logger.info("Pipeline skeleton ready. Generators not yet implemented.")
+    # Run the pipeline
+    orchestrator = PipelineOrchestrator(llm, config, checkpoint_mgr)
+    items = orchestrator.run(target_count, resume_state=resume_state)
+    logger.info("Done. Produced %d items.", len(items))
 
 
 if __name__ == "__main__":
