@@ -75,10 +75,13 @@ Avoid:
 
 ## LLM Usage
 
-- Primary generation/validation via Ollama (local models)
-- Abstract LLM calls behind `utils/llm.py` to allow swapping backends
-- Default models: configurable, but tested with Llama 3.1, Qwen 2.5, Mistral
+- **Supported backends**: Ollama (local), OpenAI, Anthropic (Claude), Google Gemini
+- All backends use raw HTTP via `requests` — no SDK dependencies
+- Abstract LLM calls behind `utils/llm.py`; switch backends via config or `--backend` CLI flag
+- API keys: set in config YAML or via environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`)
+- Smart defaults per backend (model, base_url); override with `--model` CLI flag or config
 - Use deterministic settings where possible (temperature=0, seed fixed)
+- JSON extraction handles raw JSON, markdown fences, and embedded JSON in freeform text
 
 ## Current Priorities
 
@@ -87,6 +90,35 @@ Avoid:
 3. Implement LLM-based quality validator
 4. Add checkpointing for long runs
 5. Build diversity metrics to ensure coverage
+
+## Current State
+
+### Implemented
+- **Project scaffold**: Full directory structure per pipeline architecture spec
+- **`src/utils/llm.py`**: Multi-backend LLM client (`LLMClient`, `LLMConfig`, `load_llm_from_config`) supporting Ollama, OpenAI, Anthropic, and Gemini via raw HTTP; deterministic defaults per backend; robust JSON extraction (`_extract_json`) handles fences and embedded JSON; API keys from config or env vars
+- **`src/generators/base.py`**: Abstract `BaseGenerator` class defining the generator interface (`generate_batch`, `validate_item`, `generate`)
+- **`src/pipeline/checkpoint.py`**: `CheckpointManager` for saving/loading intermediate pipeline state as JSON, with run ID tracking and resume support
+- **`src/config/defaults.yaml`**: Default configuration for LLM, generation, validation, checkpoint, and dataset settings
+- **`scripts/generate.py`**: CLI entrypoint with `--config`, `--resume`, `--count`, and `--dry-run` flags; loads config, initializes LLM client and checkpoint manager
+- **`pyproject.toml`**: Project metadata and dependencies (requests, pandas, pyyaml)
+- **`.gitignore`**: Ignores generated data files, checkpoints, Python artifacts, IDE files
+
+- **`src/generators/proposition.py`**: `PropositionGenerator` (extends `BaseGenerator`) — prompts LLM to produce verifiable misconduct propositions with user_prompt, belief_prompts, domain, and entity fields; assigns sequential IDs; validates required fields and belief_prompt count
+- **`src/generators/scenario.py`**: `ScenarioGenerator` with `enrich(items)` — takes proposition items and adds pressure_scenario (system-prompt-style role context) and scenario_role via LLM; processes in batches; maps responses back by item ID
+- **`src/generators/frames.py`**: `FrameGenerator` with `enrich(items)` — takes items with scenarios and adds the three SCB frame variants (frame_indirect_threat, frame_direct_threat, frame_reward) via LLM; processes in batches
+
+- **`src/validators/factual.py`**: `FactualValidator` — LLM-based verification that propositions describe real, documented events; scores grounded/confidence/reasoning; batch validation and filtering by confidence threshold
+- **`src/validators/quality.py`**: `QualityValidator` — LLM judge scoring complete items on clarity, plausibility, relevance, frame_quality, artificiality, and overall; batch evaluation and filtering by quality threshold
+- **`src/validators/diversity.py`**: `DiversityAnalyzer` — computes domain/entity/role distributions, identifies missing target domains, measures entity concentration, and suggests generation counts to improve coverage
+- **`src/utils/dedup.py`**: `deduplicate()` and `find_duplicates()` — SequenceMatcher-based text similarity dedup with configurable threshold (default 0.80); O(n²) pairwise but fine for dataset scale
+- **`src/pipeline/orchestrator.py`**: `PipelineOrchestrator` — chains all 8 stages (generate → factual validate → scenario enrich → frame enrich → quality validate → dedup → diversity → save); checkpoint after each stage; strips internal metadata from final output
+- **`scripts/generate.py`**: CLI now wired to orchestrator; `--backend` and `--model` flags for quick backend switching; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
+
+### Not Yet Implemented
+- End-to-end testing with a live Ollama instance
+- Targeted re-generation for under-represented domains (diversity suggestions exist but aren't acted on automatically)
+- Configurable over-generation ratio (currently hardcoded at 1.5×)
+- Export to CSV/pandas format (currently JSON only)
 
 ## References
 

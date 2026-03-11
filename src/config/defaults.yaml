@@ -1,0 +1,73 @@
+# scb-datagen default configuration
+
+# LLM settings
+# Supported backends: ollama, openai, anthropic, gemini
+# API keys: set in config below, or via environment variables:
+#   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+llm:
+  backend: ollama
+  # base_url and model have smart defaults per backend (see below).
+  # Override only if needed.
+  model: llama3.1:8b
+  base_url: http://localhost:11434
+  temperature: 0.0
+  seed: 42
+  timeout: 120  # seconds per request
+  max_tokens: 4096
+  # api_key: ""  # or set via env var
+
+# Backend presets (uncomment one block to switch):
+#
+# --- OpenAI (also works with any OpenAI-compatible API) ---
+# llm:
+#   backend: openai
+#   model: gpt-4o          # or gpt-4o-mini for lower cost
+#   # base_url: https://api.openai.com/v1  # default; change for Azure/Together/Groq
+#   # api_key: ""  # or set OPENAI_API_KEY
+#
+# --- Anthropic (Claude) ---
+# llm:
+#   backend: anthropic
+#   model: claude-sonnet-4-5-20250929
+#   # api_key: ""  # or set ANTHROPIC_API_KEY
+#
+# --- Google Gemini ---
+# llm:
+#   backend: gemini
+#   model: gemini-2.0-flash    # or gemini-2.5-pro
+#   # api_key: ""  # or set GEMINI_API_KEY
+
+# Generation settings
+generation:
+  batch_size: 10
+  max_retries: 3
+  output_dir: data/raw
+  # Target domains for diversity across propositions
+  domains:
+    - pharmaceutical
+    - financial
+    - tech
+    - environmental
+    - automotive
+    - food_safety
+    - telecommunications
+    - energy
+    - manufacturing
+    - government
+
+# Validation settings
+validation:
+  quality_threshold: 0.7
+  output_dir: data/validated
+
+# Checkpoint settings
+checkpoint:
+  enabled: true
+  dir: data/checkpoints
+  save_every: 10  # save after every N items
+
+# Dataset settings
+dataset:
+  id_prefix: scb
+  start_id: 1
+  target_count: 500

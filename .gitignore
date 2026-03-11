@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Data (keep structure, ignore generated files)
+data/raw/*.json
+data/raw/*.csv
+data/validated/*.json
+data/validated/*.csv
+data/final/*.json
+data/final/*.csv
+data/checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
