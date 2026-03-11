@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +43,9 @@ API_KEY_ENV_VARS: dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
 }
 
+# Backends that require an API key
+_KEYED_BACKENDS = frozenset(API_KEY_ENV_VARS)
+
 
 @dataclass
 class LLMConfig:
@@ -54,6 +59,9 @@ class LLMConfig:
     timeout: int = 120
     api_key: str = ""
     max_tokens: int = 4096
+    max_retries: int = 5
+    retry_base_delay: float = 1.0
+    retry_max_delay: float = 60.0
 
     def __post_init__(self) -> None:
         # Apply backend-specific defaults if not explicitly set
@@ -82,6 +90,42 @@ class LLMClient:
                 f"Unknown backend: {self.config.backend!r}. "
                 f"Supported: {', '.join(self.BACKENDS)}"
             )
+        self.validate_connection()
+
+    def validate_connection(self) -> None:
+        """Validate that the backend is reachable and configured.
+
+        For keyed backends (OpenAI, Anthropic, Gemini), checks that the
+        API key is set and non-empty. For Ollama, makes a lightweight
+        request to confirm the server is reachable.
+
+        Raises:
+            ValueError: If an API key is required but missing.
+            ConnectionError: If Ollama is not reachable.
+        """
+        backend = self.config.backend
+
+        if backend in _KEYED_BACKENDS:
+            if not self.config.api_key:
+                env_var = API_KEY_ENV_VARS[backend]
+                raise ValueError(
+                    f"{env_var} environment variable is not set and no api_key "
+                    f"was provided in config. Set {env_var} or add api_key to "
+                    f"the llm config section."
+                )
+
+        if backend == "ollama":
+            try:
+                resp = requests.get(
+                    f"{self.config.base_url}/api/tags",
+                    timeout=(5, 10),
+                )
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                raise ConnectionError(
+                    f"Cannot reach Ollama at {self.config.base_url}. "
+                    f"Is the Ollama server running? Error: {e}"
+                ) from e
 
     def generate(self, prompt: str, system: str = "", **kwargs: Any) -> str:
         """Generate a completion from the LLM.
@@ -103,7 +147,16 @@ class LLMClient:
             "anthropic": self._generate_anthropic,
             "gemini": self._generate_gemini,
         }
-        return dispatch[self.config.backend](prompt, system, **kwargs)
+        logger.debug("[LLM-CALL] backend=%s model=%s prompt_len=%d system_len=%d",
+                      self.config.backend, self.config.model, len(prompt), len(system))
+        logger.debug("[LLM-CALL] prompt:\n%s", prompt)
+        if system:
+            logger.debug("[LLM-CALL] system:\n%s", system)
+
+        result = dispatch[self.config.backend](prompt, system, **kwargs)
+
+        logger.debug("[LLM-RESPONSE] len=%d:\n%s", len(result), result)
+        return result
 
     def generate_json(self, prompt: str, system: str = "", **kwargs: Any) -> dict:
         """Generate a completion and parse it as JSON.
@@ -146,7 +199,6 @@ class LLMClient:
         if kwargs.get("format") == "json":
             payload["format"] = "json"
 
-        logger.debug("Ollama request model=%s", self.config.model)
         data = self._post(url, payload)
         return data.get("response", "")
 
@@ -177,7 +229,6 @@ class LLMClient:
             "Content-Type": "application/json",
         }
 
-        logger.debug("OpenAI request model=%s", self.config.model)
         data = self._post(url, payload, headers=headers)
         try:
             return data["choices"][0]["message"]["content"]
@@ -204,7 +255,6 @@ class LLMClient:
             "Content-Type": "application/json",
         }
 
-        logger.debug("Anthropic request model=%s", self.config.model)
         data = self._post(url, payload, headers=headers)
         try:
             content_blocks = data["content"]
@@ -238,7 +288,6 @@ class LLMClient:
         headers = {"Content-Type": "application/json"}
         params = {"key": self.config.api_key}
 
-        logger.debug("Gemini request model=%s", model)
         data = self._post(url, payload, headers=headers, params=params)
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -246,7 +295,7 @@ class LLMClient:
             raise LLMError(f"Unexpected Gemini response structure: {e}") from e
 
     # ------------------------------------------------------------------
-    # HTTP helper
+    # HTTP helper with retry
     # ------------------------------------------------------------------
 
     def _post(
@@ -256,16 +305,54 @@ class LLMClient:
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Make an HTTP POST request and return parsed JSON."""
-        try:
-            resp = requests.post(
-                url, json=payload, headers=headers, params=params,
-                timeout=self.config.timeout,
-            )
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            raise LLMError(f"{self.config.backend} API call failed: {e}") from e
-        return resp.json()
+        """Make an HTTP POST request with exponential backoff retry.
+
+        Retries on HTTP 429 (rate limit) and 5xx (server error) responses.
+        Uses exponential backoff with jitter.
+        """
+        max_retries = self.config.max_retries
+        base_delay = self.config.retry_base_delay
+        max_delay = self.config.retry_max_delay
+        timeout = (min(self.config.timeout, 30), self.config.timeout)
+
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                resp = requests.post(
+                    url, json=payload, headers=headers, params=params,
+                    timeout=timeout,
+                )
+                # Retry on rate-limit or server errors
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = random.uniform(0, delay * 0.5)
+                    wait = delay + jitter
+                    logger.warning(
+                        "HTTP %d from %s (attempt %d/%d), retrying in %.1fs",
+                        resp.status_code, self.config.backend, attempt + 1, max_retries + 1, wait,
+                    )
+                    if attempt < max_retries:
+                        time.sleep(wait)
+                        continue
+                    # Final attempt — fall through to raise
+                resp.raise_for_status()
+                return resp.json()
+            except requests.ConnectionError as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = random.uniform(0, delay * 0.5)
+                    wait = delay + jitter
+                    logger.warning(
+                        "Connection error for %s (attempt %d/%d), retrying in %.1fs: %s",
+                        self.config.backend, attempt + 1, max_retries + 1, wait, e,
+                    )
+                    time.sleep(wait)
+                    continue
+            except requests.RequestException as e:
+                last_error = e
+
+        raise LLMError(f"{self.config.backend} API call failed after {max_retries + 1} attempts: {last_error}") from last_error
 
 
 class LLMError(Exception):

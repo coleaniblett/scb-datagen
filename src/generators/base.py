@@ -60,7 +60,7 @@ class BaseGenerator(ABC):
         """
         return True
 
-    def generate(self, count: int) -> list[dict[str, Any]]:
+    def generate(self, count: int, max_attempts: int = 10) -> list[dict[str, Any]]:
         """Generate items in batches with basic validation.
 
         Calls generate_batch and filters through validate_item.
@@ -68,20 +68,48 @@ class BaseGenerator(ABC):
 
         Args:
             count: Total number of valid items desired.
+            max_attempts: Maximum consecutive empty batches before raising RuntimeError.
 
         Returns:
             List of validated item dicts.
+
+        Raises:
+            RuntimeError: If max_attempts consecutive calls to generate_batch
+                return zero valid items.
         """
         batch_size = self.config.get("generation", {}).get("batch_size", 10)
+        max_rounds = self.config.get("generation", {}).get("max_rounds", 10)
         items: list[dict[str, Any]] = []
 
-        while len(items) < count:
+        rounds = 0
+        consecutive_empty = 0
+        while len(items) < count and rounds < max_rounds:
+            rounds += 1
             needed = min(batch_size, count - len(items))
             batch = self.generate_batch(needed)
+            if not batch:
+                consecutive_empty += 1
+                logger.warning(
+                    "Empty batch returned (round %d/%d, %d consecutive empty)",
+                    rounds, max_rounds, consecutive_empty,
+                )
+                if consecutive_empty >= max_attempts:
+                    raise RuntimeError(
+                        f"{self.__class__.__name__}: {max_attempts} consecutive empty batches. "
+                        f"Collected {len(items)}/{count} items. "
+                        f"Check LLM connectivity and prompt configuration."
+                    )
+                continue
+            consecutive_empty = 0
             for item in batch:
                 if self.validate_item(item):
                     items.append(item)
                 else:
                     logger.warning("Item failed basic validation, skipping: %s", item.get("id", "?"))
+
+        if len(items) < count:
+            logger.warning(
+                "Only generated %d/%d valid items after %d rounds", len(items), count, max_rounds
+            )
 
         return items[:count]

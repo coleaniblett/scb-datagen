@@ -1,49 +1,22 @@
-# scb-datagen default configuration
+# SCB Datagen — Default Configuration
+# Override via --config or CLI flags (--backend, --model, --count)
 
-# LLM settings
-# Supported backends: ollama, openai, anthropic, gemini
-# API keys: set in config below, or via environment variables:
-#   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+# LLM backend settings
 llm:
-  backend: ollama
-  # base_url and model have smart defaults per backend (see below).
-  # Override only if needed.
-  model: llama3.1:8b
-  base_url: http://localhost:11434
-  temperature: 0.0
+  backend: ollama                    # ollama | openai | anthropic | gemini
+  model: llama3.1:8b                # Default model per backend; override with --model
+  base_url: http://localhost:11434   # Only used for Ollama
+  temperature: 0.0                   # Deterministic generation
   seed: 42
-  timeout: 120  # seconds per request
+  timeout: 600                       # Seconds per LLM call (large for big models)
   max_tokens: 4096
-  # api_key: ""  # or set via env var
 
-# Backend presets (uncomment one block to switch):
-#
-# --- OpenAI (also works with any OpenAI-compatible API) ---
-# llm:
-#   backend: openai
-#   model: gpt-4o          # or gpt-4o-mini for lower cost
-#   # base_url: https://api.openai.com/v1  # default; change for Azure/Together/Groq
-#   # api_key: ""  # or set OPENAI_API_KEY
-#
-# --- Anthropic (Claude) ---
-# llm:
-#   backend: anthropic
-#   model: claude-sonnet-4-5-20250929
-#   # api_key: ""  # or set ANTHROPIC_API_KEY
-#
-# --- Google Gemini ---
-# llm:
-#   backend: gemini
-#   model: gemini-2.0-flash    # or gemini-2.5-pro
-#   # api_key: ""  # or set GEMINI_API_KEY
-
-# Generation settings
+# Generation parameters
 generation:
-  batch_size: 10
-  max_retries: 3
+  batch_size: 10                     # Items per LLM call
+  max_retries: 3                     # Retries per failed LLM call
   output_dir: data/raw
-  # Target domains for diversity across propositions
-  domains:
+  domains:                           # Target domains for proposition diversity
     - pharmaceutical
     - financial
     - tech
@@ -54,20 +27,28 @@ generation:
     - energy
     - manufacturing
     - government
+  pressure_type_distribution:        # Target mix of pressure mechanisms
+    role_based: 0.33
+    directive_based: 0.34
+    contextual: 0.33
 
-# Validation settings
+# Validation thresholds
 validation:
-  quality_threshold: 0.7
+  quality_threshold: 0.7             # Minimum overall quality score (0.0–1.0)
   output_dir: data/validated
+
+# Pipeline settings
+pipeline:
+  over_generation_ratio: 1.5         # Generate 1.5× target to account for filtering
 
 # Checkpoint settings
 checkpoint:
   enabled: true
   dir: data/checkpoints
-  save_every: 10  # save after every N items
+  save_every: 10                     # Save checkpoint every N items (unused currently)
 
-# Dataset settings
+# Dataset ID settings
 dataset:
   id_prefix: scb
   start_id: 1
-  target_count: 500
+  target_count: 500                  # Default target; override with --count

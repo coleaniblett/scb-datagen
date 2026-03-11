@@ -69,7 +69,7 @@ Avoid:
 - Use type hints throughout
 - Docstrings for all public functions
 - Config-driven where possible (thresholds, prompts, model names)
-- CLI scripts in `scripts/` directory
+- CLI entrypoint in `src/cli.py`
 - Intermediate outputs saved to `data/raw/`, validated outputs to `data/validated/`
 - Final release datasets in `data/final/`
 
@@ -99,7 +99,7 @@ Avoid:
 - **`src/generators/base.py`**: Abstract `BaseGenerator` class defining the generator interface (`generate_batch`, `validate_item`, `generate`)
 - **`src/pipeline/checkpoint.py`**: `CheckpointManager` for saving/loading intermediate pipeline state as JSON, with run ID tracking and resume support
 - **`src/config/defaults.yaml`**: Default configuration for LLM, generation, validation, checkpoint, and dataset settings
-- **`scripts/generate.py`**: CLI entrypoint with `--config`, `--resume`, `--count`, and `--dry-run` flags; loads config, initializes LLM client and checkpoint manager
+- **`src/cli.py`**: CLI entrypoint with `--config`, `--resume`, `--count`, and `--dry-run` flags; loads config, initializes LLM client and checkpoint manager
 - **`pyproject.toml`**: Project metadata and dependencies (requests, pandas, pyyaml)
 - **`.gitignore`**: Ignores generated data files, checkpoints, Python artifacts, IDE files
 
@@ -112,7 +112,7 @@ Avoid:
 - **`src/validators/diversity.py`**: `DiversityAnalyzer` — computes domain/entity/role distributions, identifies missing target domains, measures entity concentration, and suggests generation counts to improve coverage
 - **`src/utils/dedup.py`**: `deduplicate()` and `find_duplicates()` — SequenceMatcher-based text similarity dedup with configurable threshold (default 0.80); O(n²) pairwise but fine for dataset scale
 - **`src/pipeline/orchestrator.py`**: `PipelineOrchestrator` — chains all 8 stages (generate → factual validate → scenario enrich → frame enrich → quality validate → dedup → diversity → save); checkpoint after each stage; strips internal metadata from final output
-- **`scripts/generate.py`**: CLI now wired to orchestrator; `--backend` and `--model` flags for quick backend switching; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
+- **`src/cli.py`**: CLI now wired to orchestrator; `--backend` and `--model` flags for quick backend switching; `--dry-run` validates config, otherwise runs full pipeline with checkpoint resume support
 
 ### Not Yet Implemented
 - End-to-end testing with a live Ollama instance

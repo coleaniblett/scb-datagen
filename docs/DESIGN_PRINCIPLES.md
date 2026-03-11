@@ -176,8 +176,8 @@ This document maps eight research-backed design principles for automated dataset
 - **`src/pipeline/checkpoint.py`** (`CheckpointManager`): JSON-based checkpointing with per-run files. Saves state after every pipeline stage (8 checkpoint writes per run). Supports resume via `--resume RUN_ID`.
 - **`src/pipeline/orchestrator.py`** (`PipelineOrchestrator._maybe_checkpoint`): Automatically checkpoints after each stage completes. On resume, identifies the last completed stage and starts from the next one.
 - **Retry logic**: All generators and validators implement retry loops with configurable `max_retries` (default 3). Failed LLM calls are retried before the item is marked as failed.
-- **`scripts/generate.py`** (`--dry-run`): Pre-flight validation — confirms config is parseable, LLM client initializes correctly, and all components wire together, without making any API calls.
-- **`scripts/generate.py`** (`--count`): Supports small-scale development runs (e.g., `--count 10`) to validate the pipeline before scaling to the full target count.
+- **`src/cli.py`** (`--dry-run`): Pre-flight validation — confirms config is parseable, LLM client initializes correctly, and all components wire together, without making any API calls.
+- **`src/cli.py`** (`--count`): Supports small-scale development runs (e.g., `--count 10`) to validate the pipeline before scaling to the full target count.
 - **Config-driven pipeline**: All thresholds, model settings, and parameters are externalized to `defaults.yaml` and overridable via CLI flags.
 
 **Status**: Partially implemented
@@ -202,7 +202,7 @@ This document maps eight research-backed design principles for automated dataset
 | 5. Factual Grounding | `proposition.py`, `factual.py` | Partial | No self-consistency; no RAG; no human review queue |
 | 6. Taxonomy-Driven | `defaults.yaml`, `diversity.py`, `CLAUDE.md` | Partial | No difficulty levels; no enforced stratification |
 | 7. Contamination Resistance | Fresh generation, `dedup.py` | Planned | No benchmark contamination check |
-| 8. Pipeline Robustness | `checkpoint.py`, `orchestrator.py`, `generate.py` | Partial | No append-only log; no circuit breaker; no cost estimation |
+| 8. Pipeline Robustness | `checkpoint.py`, `orchestrator.py`, `cli.py` | Partial | No append-only log; no circuit breaker; no cost estimation |
 
 ### Component Coverage Map
 
@@ -220,7 +220,7 @@ This document maps eight research-backed design principles for automated dataset
 | `src/utils/dedup.py` | 2 (deduplication), 4 (quality gate), 7 (internal contamination) |
 | `src/utils/llm.py` | 8 (multi-backend support, config-driven) |
 | `src/config/defaults.yaml` | 2 (domain taxonomy), 6 (taxonomy definition), 8 (config-driven thresholds) |
-| `scripts/generate.py` | 8 (dry-run, small-scale runs, CLI overrides) |
+| `src/cli.py` | 8 (dry-run, small-scale runs, CLI overrides) |
 
 ---
 

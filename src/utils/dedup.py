@@ -26,6 +26,9 @@ def deduplicate(
     to an already-accepted item are dropped. Comparison is O(n^2) but
     acceptable for dataset sizes up to a few thousand items.
 
+    TODO: For scale beyond ~2k items, consider switching to MinHash via
+    ``datasketch`` for approximate O(n) dedup.
+
     Args:
         items: List of dataset items with 'proposition' field.
         threshold: Similarity ratio above which items are considered duplicates.
